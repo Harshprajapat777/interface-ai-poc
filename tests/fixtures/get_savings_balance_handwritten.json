@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "name": "get_savings_balance",
+  "version": 1,
+  "description": "Look up a member by number and read their current share savings balance.",
+  "app": {
+    "product": "northgate-servicing-console",
+    "product_version": "2003.1",
+    "tenant": "demo-cu",
+    "base_url": "http://127.0.0.1:4173"
+  },
+  "inputs": [
+    {
+      "name": "operator_id",
+      "type": "string",
+      "description": "Operator sign-on ID for the servicing console.",
+      "required": true,
+      "pattern": "^[a-z]{3}[0-9]{3}$",
+      "sensitive": false
+    },
+    {
+      "name": "password",
+      "type": "string",
+      "description": "Operator password. Supplied per call and never persisted.",
+      "required": true,
+      "pattern": null,
+      "sensitive": true
+    },
+    {
+      "name": "member_id",
+      "type": "integer",
+      "description": "The member number to look up.",
+      "required": true,
+      "pattern": "^[0-9]{5}$",
+      "sensitive": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "member_name",
+      "type": "string",
+      "description": "Name on the member record.",
+      "extract": {
+        "kind": "row_cell",
+        "row_contains": "Name",
+        "cell": 1,
+        "pattern": null,
+        "target": null
+      }
+    },
+    {
+      "name": "savings_balance",
+      "type": "money",
+      "description": "Current balance of the share savings account.",
+      "extract": {
+        "kind": "row_cell",
+        "row_contains": "Share Savings",
+        "cell": 2,
+        "pattern": null,
+        "target": null
+      }
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "action": "navigate",
+      "description": "Open the servicing console sign-on screen.",
+      "target": null,
+      "value": "http://127.0.0.1:4173/",
+      "checkpoint": {
+        "kind": "text_present",
+        "value": "Operator ID",
+        "timeout_ms": 10000
+      },
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "action": "fill",
+      "description": "Type the operator ID.",
+      "target": {
+        "role": "textbox",
+        "name": "",
+        "label": "Operator ID",
+        "frame": "",
+        "index": 0,
+        "recorded_strategy": "label",
+        "note": "Input has no accessible name; identified by the label cell to its left."
+      },
+      "value": "{{operator_id}}",
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "action": "fill",
+      "description": "Type the operator password.",
+      "target": {
+        "role": "textbox",
+        "name": "",
+        "label": "Password",
+        "frame": "",
+        "index": 1,
+        "recorded_strategy": "label",
+        "note": "Same as the operator ID field; nameless, found by its label cell."
+      },
+      "value": "{{password}}",
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "action": "click",
+      "description": "Sign on.",
+      "target": {
+        "role": "button",
+        "name": "Sign On",
+        "label": "",
+        "frame": "",
+        "index": 0,
+        "recorded_strategy": "name",
+        "note": "Submit button takes its accessible name from its value attribute."
+      },
+      "value": null,
+      "checkpoint": {
+        "kind": "url_contains",
+        "value": "/console",
+        "timeout_ms": 10000
+      },
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "action": "fill",
+      "description": "Enter the member number in the search box.",
+      "target": {
+        "role": "textbox",
+        "name": "Member Number",
+        "label": "Member Number",
+        "frame": "contentframe",
+        "index": 0,
+        "recorded_strategy": "name",
+        "note": "Carries a title attribute, so it does have an accessible name."
+      },
+      "value": "{{member_id}}",
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "action": "click",
+      "description": "Run the member search.",
+      "target": {
+        "role": "button",
+        "name": "Search",
+        "label": "",
+        "frame": "contentframe",
+        "index": 1,
+        "recorded_strategy": "name",
+        "note": "Named from its value attribute."
+      },
+      "value": null,
+      "checkpoint": {
+        "kind": "text_present",
+        "value": "record found",
+        "timeout_ms": 10000
+      },
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "action": "click",
+      "description": "Open the member record from the results row.",
+      "target": {
+        "role": "button",
+        "name": "Open",
+        "label": "",
+        "frame": "contentframe",
+        "index": 0,
+        "recorded_strategy": "name",
+        "note": "One row is expected; a multi-hit result would need a row match first."
+      },
+      "value": null,
+      "checkpoint": {
+        "kind": "text_present",
+        "value": "Current Balance",
+        "timeout_ms": 10000
+      },
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "action": "extract",
+      "description": "Read the member name and share savings balance.",
+      "target": null,
+      "value": null,
+      "checkpoint": null,
+      "risk": "safe"
+    }
+  ],
+  "outcomes": [
+    {
+      "name": "member_not_found",
+      "when_text": "No member found",
+      "kind": "business",
+      "message": "No member exists with that number.",
+      "recovery": null
+    },
+    {
+      "name": "invalid_member_number",
+      "when_text": "must be numeric",
+      "kind": "business",
+      "message": "The member number supplied is not valid for this application.",
+      "recovery": null
+    },
+    {
+      "name": "access_denied",
+      "when_text": "Access denied",
+      "kind": "business",
+      "message": "This operator profile is not entitled to view the member record.",
+      "recovery": null
+    },
+    {
+      "name": "consent_required",
+      "when_text": "Consent confirmation required",
+      "kind": "recoverable",
+      "message": "Consent interstitial dismissed.",
+      "recovery": {
+        "kind": "click",
+        "target": {
+          "role": "button",
+          "name": "Confirm Consent",
+          "label": "",
+          "frame": "contentframe",
+          "index": 0,
+          "recorded_strategy": "name",
+          "note": "Known interstitial for members on paper-only disclosures."
+        },
+        "max_attempts": 1
+      }
+    },
+    {
+      "name": "session_expired",
+      "when_text": "session has expired",
+      "kind": "recoverable",
+      "message": "Session timed out; signing on again.",
+      "recovery": {
+        "kind": "restart",
+        "target": null,
+        "max_attempts": 1
+      }
+    },
+    {
+      "name": "application_error",
+      "when_text": "Application error",
+      "kind": "hard",
+      "message": "The servicing console returned an application error.",
+      "recovery": null
+    }
+  ],
+  "extends": null,
+  "approval": "draft",
+  "recorded": {
+    "recorded_at": "2026-09-19T00:00:00Z",
+    "model": "hand-written",
+    "llm_steps": 0,
+    "evidence_run_id": ""
+  }
+}
