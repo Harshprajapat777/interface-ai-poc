@@ -1,0 +1,65 @@
+{
+  "product": "northgate-servicing-console",
+  "product_version": "2003.1",
+  "note": "Runtime conditions this product is known to produce. Shared by every capability recorded against it, and by every tenant running this build.",
+  "outcomes": [
+    {
+      "name": "member_not_found",
+      "when_text": "No member found",
+      "kind": "business",
+      "message": "No member exists with that number.",
+      "recovery": null
+    },
+    {
+      "name": "invalid_member_number",
+      "when_text": "must be numeric",
+      "kind": "business",
+      "message": "The member number supplied is not valid for this application.",
+      "recovery": null
+    },
+    {
+      "name": "access_denied",
+      "when_text": "Access denied",
+      "kind": "business",
+      "message": "This operator profile is not entitled to view the member record.",
+      "recovery": null
+    },
+    {
+      "name": "consent_required",
+      "when_text": "Consent confirmation required",
+      "kind": "recoverable",
+      "message": "Consent interstitial dismissed.",
+      "recovery": {
+        "kind": "click",
+        "target": {
+          "role": "button",
+          "name": "Confirm Consent",
+          "label": "",
+          "frame": "contentframe",
+          "index": 0,
+          "recorded_strategy": "name",
+          "note": "Known interstitial for members on paper-only disclosures."
+        },
+        "max_attempts": 1
+      }
+    },
+    {
+      "name": "session_expired",
+      "when_text": "session has expired",
+      "kind": "recoverable",
+      "message": "Session timed out; signing on again.",
+      "recovery": {
+        "kind": "restart",
+        "target": null,
+        "max_attempts": 1
+      }
+    },
+    {
+      "name": "application_error",
+      "when_text": "Application error",
+      "kind": "hard",
+      "message": "The servicing console returned an application error.",
+      "recovery": null
+    }
+  ]
+}

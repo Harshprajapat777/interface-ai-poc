@@ -18,6 +18,9 @@ from cua.surface.snapshot import SCAN_JS, ScanResult, build_controls
 # How long to wait for a control or a page load before giving up.
 DEFAULT_TIMEOUT_MS = 10_000
 
+# How long to let the network go quiet after an action before snapshotting.
+SETTLE_TIMEOUT_MS = 3_000
+
 
 class BrowserSurface:
     """Drives a Chromium page as a Surface."""
@@ -115,5 +118,17 @@ class BrowserSurface:
         raise LookupError(f"Frame {control.frame!r} is no longer on the page")
 
     def _settle(self) -> None:
-        """Waits for whatever the last action started to finish loading."""
-        self._page.wait_for_load_state("load")
+        """Waits for whatever the last action started to finish loading.
+
+        Waiting on the page's load state alone is not enough here: the page is
+        a frameset that was already loaded, so a navigation happening inside a
+        frame leaves the page state untouched and a snapshot taken immediately
+        afterwards can catch the previous screen. Waiting for the network to go
+        quiet covers the frame case too.
+        """
+        try:
+            self._page.wait_for_load_state("load")
+            self._page.wait_for_load_state("networkidle", timeout=SETTLE_TIMEOUT_MS)
+        except Exception:
+            # A slow app is the checkpoint's problem to report, not this one's.
+            pass
