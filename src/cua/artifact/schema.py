@@ -58,14 +58,12 @@ class Extraction(Strict):
     than a positional selector and does not care about the markup at all.
     """
 
-    kind: Literal["row_cell", "pattern", "control_value"]
-    # row_cell
+    kind: Literal["row_cell", "pattern"]
+    # row_cell: the row is found by this text, then this cell is taken from it.
     row_contains: str | None = None
     cell: int | None = None
-    # pattern: a regex with exactly one capture group
+    # pattern: a regex with exactly one capture group, matched against visible text.
     pattern: str | None = None
-    # control_value
-    target: "TargetSpec | None" = None
 
 
 class OutputSpec(Strict):
@@ -233,5 +231,3 @@ def _json_type(value_type: ValueType) -> str:
     """Maps our value types onto JSON Schema types."""
     return "integer" if value_type == "integer" else "string"
 
-
-Extraction.model_rebuild()

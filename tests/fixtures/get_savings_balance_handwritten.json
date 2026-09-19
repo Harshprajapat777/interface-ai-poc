@@ -44,8 +44,7 @@
         "kind": "row_cell",
         "row_contains": "Name",
         "cell": 1,
-        "pattern": null,
-        "target": null
+        "pattern": null
       }
     },
     {
@@ -56,8 +55,7 @@
         "kind": "row_cell",
         "row_contains": "Share Savings",
         "cell": 2,
-        "pattern": null,
-        "target": null
+        "pattern": null
       }
     }
   ],
