@@ -5,12 +5,16 @@ answer the caller needs, not a crash. Conflating the two is the mistake the
 brief calls out, so the two are different statuses carrying different fields,
 and a business outcome is never raised.
 
-Four statuses, and each means something different to the caller:
+Five statuses, and each means something different to the caller:
 
     success           the flow finished and the declared outputs are here
     business_outcome  the app answered, and the answer is a legitimate "no"
     rejected          the caller's inputs were wrong; the app was never touched
+    blocked           policy refused to take the action; nothing is broken
     failure           something broke; here is what to look at
+
+`blocked` is separate because a refusal is not a fault. An operator reading it
+should go and grant permission or escalate, not open a debugger.
 
 `rejected` is separate from `failure` on purpose. A malformed member number is
 the calling agent's bug, caught before a browser opens; a missing Search button
@@ -25,7 +29,7 @@ from typing import Literal
 from cua.artifact.schema import Capability, Extraction, OutcomeRule
 from cua.surface.base import Observation
 
-Status = Literal["success", "business_outcome", "rejected", "failure"]
+Status = Literal["success", "business_outcome", "rejected", "blocked", "failure"]
 
 
 @dataclass(frozen=True, slots=True)

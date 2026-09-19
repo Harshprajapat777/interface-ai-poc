@@ -126,3 +126,37 @@ def test_a_checkpoint_that_never_holds_reports_what_was_expected() -> None:
     assert result.status == "failure"
     assert result.failed_step == "s1"
     assert "Console" in result.expected
+
+
+def test_navigating_off_the_allowlist_is_blocked_not_attempted() -> None:
+    wander = Step(
+        id="s1",
+        action="navigate",
+        description="Go somewhere else entirely.",
+        value="http://evil.test/",
+    )
+    surface = ScriptedSurface([screen("Console")])
+    engine = ReplayEngine(surface, capability([wander], []))
+
+    result = engine.run({})
+
+    assert result.status == "blocked"
+    assert "host_not_allowed" in result.message
+
+
+def test_a_risky_step_is_refused_by_default() -> None:
+    post = Step(
+        id="s1",
+        action="click",
+        description="Post the transfer.",
+        target=TargetSpec(role="button", name="Confirm"),
+        risk="risky",
+    )
+    surface = ScriptedSurface([screen("Console")])
+    engine = ReplayEngine(surface, capability([post], []))
+
+    result = engine.run({})
+
+    assert result.status == "blocked"
+    assert "risky_action_blocked" in result.message
+    assert surface.clicked == []

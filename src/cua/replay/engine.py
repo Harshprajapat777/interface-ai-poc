@@ -14,6 +14,7 @@ from pathlib import Path
 
 from cua.artifact import params
 from cua.artifact.schema import Capability, OutcomeRule, Step, TargetSpec
+from cua.policy.allowlist import Denial, Policy
 from cua.replay.checkpoint import describe, wait_until
 from cua.replay.outcomes import ReplayResult, StepRecord, extract_value, find_outcome
 from cua.shared.result import Err
@@ -60,10 +61,13 @@ class ReplayEngine:
         surface: Surface,
         capability: Capability,
         evidence_dir: Path | None = None,
+        policy: Policy | None = None,
     ) -> None:
         self.surface = surface
         self.capability = capability
         self.evidence_dir = evidence_dir
+        # Defaults to the artifact's own application and nothing else.
+        self.policy = policy or Policy.for_capability(capability)
 
     def run(self, values: dict[str, str]) -> ReplayResult:
         """Validates inputs, then replays the flow, restarting if asked to."""
@@ -107,10 +111,20 @@ class ReplayEngine:
         state: _State,
     ) -> ReplayResult | _Restart | None:
         """Performs one step. Returns a result only if the run should stop here."""
+        refused = self.policy.check_step(step)
+        if refused is not None:
+            return self._blocked(refused, state)
+
         acted = self._act(step, values, state)
         if acted is not None:
             return acted
         state.steps_run += 1
+
+        # Checked on the URL actually reached, so a redirect off the allowlist
+        # is caught even though the requested address was fine.
+        strayed = self.policy.check_url(self.surface.observe().url)
+        if strayed is not None:
+            return self._blocked(strayed, state)
 
         # Outcomes are checked before the checkpoint so a known condition is
         # reported immediately rather than after the checkpoint's timeout.
@@ -142,6 +156,9 @@ class ReplayEngine:
             filled = resolved.value
 
         if step.action == "navigate":
+            refused = self.policy.check_url(filled)
+            if refused is not None:
+                return self._blocked(refused, state)
             self.surface.open(filled)
             state.records.append(StepRecord(step.id, step.action))
             return None
@@ -244,6 +261,15 @@ class ReplayEngine:
         if decided is not None:
             return decided
         return self._failure(step, describe(step.checkpoint), observation.title, state)
+
+    def _blocked(self, denial: Denial, state: _State) -> ReplayResult:
+        """Reports a refusal. Nothing is broken, so this is not a failure."""
+        return ReplayResult(
+            status="blocked",
+            message=str(denial),
+            steps_run=state.steps_run,
+            recoveries=state.recoveries,
+        )
 
     def _failure(self, step: Step, expected: str, observed: str, state: _State) -> ReplayResult:
         """Builds a failure a human can debug without rerunning anything."""
