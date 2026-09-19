@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+.env
+*.local
+
+# Runtime output. Curated evidence for the submission is force-added per file.
+evidence/**
+!evidence/.gitkeep
