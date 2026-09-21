@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from cua.artifact import store
+from cua.artifact.rebase import rebase
 from cua.cli.options import pairs
 from cua.cli.options import secrets as read_secrets
 from cua.escalation.broker import Escalation
@@ -40,6 +41,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--param", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--secret", action="append", default=[], metavar="NAME")
     parser.add_argument("--base-url", default=None, help="Run against another instance.")
+    parser.add_argument("--tenant", default="", help="Which institution this instance is.")
     parser.add_argument("--headed", action="store_true")
     parser.add_argument(
         "--operator",
@@ -62,9 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
     capability = store.load(args.name, args.version)
     if args.base_url:
-        capability = capability.model_copy(
-            update={"app": capability.app.model_copy(update={"base_url": args.base_url})}
-        )
+        capability = rebase(capability, args.base_url, tenant=args.tenant)
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     log_path = EVIDENCE / f"replay-{args.name}-{stamp}.jsonl"
