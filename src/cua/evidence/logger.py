@@ -24,11 +24,17 @@ class RunLog:
         self.redactor = redactor or Redactor()
         self._file = path.open("a", encoding="utf-8")
 
-    def event(self, kind: str, **fields: Any) -> None:
-        """Writes one event, redacting every string it carries."""
+    def event(self, name: str, /, **fields: Any) -> None:
+        """Writes one event, redacting every string it carries.
+
+        The event's own type is written as `event`, not `kind`, because the
+        records being logged have a `kind` of their own - an intervention's
+        kind is why it was raised - and splatting one over the other silently
+        cost the log line its type.
+        """
         record = {
             "at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "kind": kind,
+            "event": name,
             **{key: self._clean(value) for key, value in fields.items()},
         }
         self._file.write(json.dumps(record) + "\n")
