@@ -133,7 +133,7 @@
     {
       "id": "s6",
       "action": "click",
-      "description": "Search for the member by number",
+      "description": "Search for the member using entered number",
       "target": {
         "role": "button",
         "name": "Search",
@@ -144,13 +144,17 @@
         "note": "Has an accessible name."
       },
       "value": null,
-      "checkpoint": null,
+      "checkpoint": {
+        "kind": "text_present",
+        "value": "1 record found.",
+        "timeout_ms": 10000
+      },
       "risk": "safe"
     },
     {
       "id": "s7",
       "action": "click",
-      "description": "Open the member record to view account details",
+      "description": "Open the member record to view account details including share savings balance",
       "target": {
         "role": "button",
         "name": "Open",
@@ -241,9 +245,9 @@
   "extends": null,
   "approval": "draft",
   "recorded": {
-    "recorded_at": "2026-09-19T19:12:12+00:00",
+    "recorded_at": "2026-09-21T18:08:01+00:00",
     "model": "claude-sonnet-5",
-    "llm_steps": 9,
+    "llm_steps": 10,
     "evidence_run_id": ""
   }
 }

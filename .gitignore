@@ -8,6 +8,8 @@ dist/
 .env
 *.local
 
-# Runtime output. Curated evidence for the submission is force-added per file.
-evidence/**
-!evidence/.gitkeep
+# Runs write here with timestamped names. The curated thread for the
+# submission is committed explicitly; everything else is scratch.
+evidence/*
+!evidence/README.md
+!evidence/[0-9][0-9]-*
