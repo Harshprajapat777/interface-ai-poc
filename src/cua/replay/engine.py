@@ -14,8 +14,9 @@ from pathlib import Path
 
 from cua.artifact import params
 from cua.artifact.schema import Capability, OutcomeRule, Step, TargetSpec
+from cua.escalation.broker import Escalation, Intervention, StuckKind
 from cua.policy.allowlist import Denial, Policy
-from cua.replay.checkpoint import describe, wait_until
+from cua.replay.checkpoint import describe, is_satisfied, wait_until
 from cua.replay.outcomes import ReplayResult, StepRecord, extract_value, find_outcome
 from cua.shared.result import Err
 from cua.surface.base import Control, Observation, Surface, Target, match_control
@@ -33,6 +34,14 @@ class _Restart:
 
 
 @dataclass(slots=True)
+class _Escalate:
+    """Internal signal that a person has to decide before this step can run."""
+
+    kind: StuckKind
+    reason: str
+
+
+@dataclass(slots=True)
 class _State:
     """Bookkeeping that survives across the steps of one attempt."""
 
@@ -40,6 +49,10 @@ class _State:
     recoveries: list[str] = field(default_factory=list)
     records: list[StepRecord] = field(default_factory=list)
     steps_run: int = 0
+    # Steps a person has already been asked about, so one stuck step cannot
+    # page the same operator in a loop.
+    escalated: set[str] = field(default_factory=set)
+    interventions: list[str] = field(default_factory=list)
 
 
 def to_target(spec: TargetSpec) -> Target:
@@ -62,12 +75,15 @@ class ReplayEngine:
         capability: Capability,
         evidence_dir: Path | None = None,
         policy: Policy | None = None,
+        escalation: Escalation | None = None,
     ) -> None:
         self.surface = surface
         self.capability = capability
         self.evidence_dir = evidence_dir
         # Defaults to the artifact's own application and nothing else.
         self.policy = policy or Policy.for_capability(capability)
+        # Without one, a stuck run simply reports; it never blocks on a person.
+        self.escalation = escalation
 
     def run(self, values: dict[str, str]) -> ReplayResult:
         """Validates inputs, then replays the flow, restarting if asked to."""
@@ -92,16 +108,32 @@ class ReplayEngine:
     def _attempt(self, values: dict[str, str], recoveries: list[str]) -> ReplayResult | _Restart:
         """One pass through every recorded step."""
         state = _State(recoveries=recoveries)
-        for step in self.capability.steps:
+        index = 0
+        while index < len(self.capability.steps):
+            step = self.capability.steps[index]
             decided = self._run_step(step, values, state)
-            if decided is not None:
+            if decided is None:
+                index += 1
+                continue
+            if isinstance(decided, _Restart):
                 return decided
+            resolved = self._escalate(step, decided, state)
+            if resolved is None:
+                # A person unblocked it. Whether the step still needs running is
+                # decided by its own checkpoint, not by their word for it: if the
+                # operator completed the step by hand the checkpoint already
+                # holds, and if they only cleared an obstacle it does not.
+                if self._checkpoint_holds(step):
+                    index += 1
+                continue
+            return resolved
         return ReplayResult(
             status="success",
             message="Completed",
             outputs=state.outputs,
             steps_run=state.steps_run,
             recoveries=state.recoveries,
+            interventions=state.interventions,
         )
 
     def _run_step(
@@ -109,11 +141,15 @@ class ReplayEngine:
         step: Step,
         values: dict[str, str],
         state: _State,
-    ) -> ReplayResult | _Restart | None:
+    ) -> ReplayResult | _Restart | _Escalate | None:
         """Performs one step. Returns a result only if the run should stop here."""
         refused = self.policy.check_step(step)
         if refused is not None:
             return self._blocked(refused, state)
+
+        # Irreversible steps are approved before they happen, not explained after.
+        if self.policy.needs_human(step) and step.id not in state.escalated:
+            return _Escalate("risky_step", f"step {step.id} is irreversible: {step.description}")
 
         acted = self._act(step, values, state)
         if acted is not None:
@@ -261,6 +297,66 @@ class ReplayEngine:
         if decided is not None:
             return decided
         return self._failure(step, describe(step.checkpoint), observation.title, state)
+
+    def _escalate(
+        self,
+        step: Step,
+        decided: ReplayResult | _Escalate,
+        state: _State,
+    ) -> ReplayResult | None:
+        """Offers a stuck step to a person. Returning None means try the step again."""
+        kind, reason = self._stuck(decided)
+        if kind is None or self.escalation is None or step.id in state.escalated:
+            return decided if isinstance(decided, ReplayResult) else self._no_operator(step, state)
+
+        state.escalated.add(step.id)
+        intervention = Intervention.raise_for(
+            capability=self.capability.name,
+            goal=self.capability.description,
+            step_id=step.id,
+            kind=kind,
+            reason=reason,
+            observation=self.surface.observe(),
+            screenshot=self._capture(f"{step.id}-escalated"),
+        )
+        state.interventions.append(intervention.id)
+        resolution = self.escalation.request(intervention, self.surface)
+        if resolution.outcome == "resumed":
+            return None
+        return ReplayResult(
+            status="needs_human",
+            message=f"Operator did not complete the run: {resolution.note}",
+            failed_step=step.id,
+            steps_run=state.steps_run,
+            recoveries=state.recoveries,
+            interventions=state.interventions,
+            screenshot=intervention.screenshot,
+        )
+
+    def _checkpoint_holds(self, step: Step) -> bool:
+        """Whether this step's success condition is already true right now."""
+        if step.checkpoint is None:
+            return False
+        return is_satisfied(step.checkpoint, self.surface.observe())
+
+    def _stuck(self, decided: ReplayResult | _Escalate) -> tuple[StuckKind | None, str]:
+        """Whether this outcome is one a person should be asked about."""
+        if isinstance(decided, _Escalate):
+            return decided.kind, decided.reason
+        if decided.status == "failure":
+            return "hard_failure", decided.message
+        return None, ""
+
+    def _no_operator(self, step: Step, state: _State) -> ReplayResult:
+        """What a risky step becomes when nobody is available to approve it."""
+        return ReplayResult(
+            status="needs_human",
+            message=f"Step {step.id} needs a person to approve it and none is available",
+            failed_step=step.id,
+            steps_run=state.steps_run,
+            recoveries=state.recoveries,
+            interventions=state.interventions,
+        )
 
     def _blocked(self, denial: Denial, state: _State) -> ReplayResult:
         """Reports a refusal. Nothing is broken, so this is not a failure."""

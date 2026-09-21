@@ -31,6 +31,7 @@ class BrowserSurface:
         self._context = self._browser.new_context()
         self._context.set_default_timeout(timeout_ms)
         self._page: Page = self._context.new_page()
+        self._trace_path: Path | None = None
 
     def open(self, url: str) -> None:
         """Navigates to a starting point."""
@@ -67,6 +68,19 @@ class BrowserSurface:
         """Saves a picture of the current screen."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._page.screenshot(path=str(path), full_page=True)
+
+    def start_recording(self, path: Path) -> None:
+        """Records everything that happens next, including a human's own clicks."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._trace_path = path
+        self._context.tracing.start(screenshots=True, snapshots=True)
+
+    def stop_recording(self) -> None:
+        """Writes the trace out. Open it with `playwright show-trace <file>`."""
+        if self._trace_path is None:
+            return
+        self._context.tracing.stop(path=str(self._trace_path))
+        self._trace_path = None
 
     def html(self) -> str:
         """Returns the current page markup, for failure evidence."""

@@ -155,6 +155,14 @@ class Surface(Protocol):
         """Saves a picture of the current screen."""
         ...
 
+    def start_recording(self, path: Path) -> None:
+        """Begins recording the session, for handing to a human to inspect."""
+        ...
+
+    def stop_recording(self) -> None:
+        """Stops recording and writes the trace out."""
+        ...
+
     def close(self) -> None:
         """Shuts the surface down."""
         ...

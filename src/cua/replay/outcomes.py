@@ -11,6 +11,7 @@ Five statuses, and each means something different to the caller:
     business_outcome  the app answered, and the answer is a legitimate "no"
     rejected          the caller's inputs were wrong; the app was never touched
     blocked           policy refused to take the action; nothing is broken
+    needs_human       a person was asked to step in and did not finish it
     failure           something broke; here is what to look at
 
 `blocked` is separate because a refusal is not a fault. An operator reading it
@@ -29,7 +30,14 @@ from typing import Literal
 from cua.artifact.schema import Capability, Extraction, OutcomeRule
 from cua.surface.base import Observation
 
-Status = Literal["success", "business_outcome", "rejected", "blocked", "failure"]
+Status = Literal[
+    "success",
+    "business_outcome",
+    "rejected",
+    "blocked",
+    "needs_human",
+    "failure",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +67,8 @@ class ReplayResult:
     steps_run: int = 0
     recoveries: list[str] = field(default_factory=list)
     screenshot: str = ""
+    # Interventions raised during the run, whether or not they were resolved.
+    interventions: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:

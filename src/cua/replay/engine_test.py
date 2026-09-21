@@ -16,6 +16,9 @@ from cua.artifact.schema import (
     Step,
     TargetSpec,
 )
+from cua.escalation.broker import Escalation
+from cua.escalation.operator import ScriptedOperator
+from cua.policy.allowlist import Policy
 from cua.replay.engine import ReplayEngine
 from cua.surface.base import Control, Observation
 
@@ -41,6 +44,12 @@ class ScriptedSurface:
         pass
 
     def screenshot(self, path: Path) -> None:
+        pass
+
+    def start_recording(self, path: Path) -> None:
+        pass
+
+    def stop_recording(self) -> None:
         pass
 
     def close(self) -> None:
@@ -160,3 +169,82 @@ def test_a_risky_step_is_refused_by_default() -> None:
     assert result.status == "blocked"
     assert "risky_action_blocked" in result.message
     assert surface.clicked == []
+
+
+def test_a_risky_step_is_approved_by_a_person_then_performed() -> None:
+    """Escalation happens before the irreversible action, not after it."""
+    post = Step(
+        id="s1",
+        action="click",
+        description="Post the transfer.",
+        target=TargetSpec(role="button", name="Confirm"),
+        risk="risky",
+    )
+    confirm = Control(ref="c1", role="button", name="Confirm", label="", frame="", index=0)
+    surface = ScriptedSurface([screen("Console", controls=[confirm])])
+    engine = ReplayEngine(
+        surface,
+        capability([post], []),
+        policy=Policy.for_capability(capability([post], []), risky="escalate"),
+        escalation=Escalation(ScriptedOperator(lambda _: None, note="approved by supervisor")),
+    )
+
+    result = engine.run({})
+
+    assert result.status == "success"
+    assert surface.clicked == ["c1"]
+    assert len(result.interventions) == 1
+
+
+def test_a_risky_step_with_nobody_to_ask_stops_the_run() -> None:
+    post = Step(
+        id="s1",
+        action="click",
+        description="Post the transfer.",
+        target=TargetSpec(role="button", name="Confirm"),
+        risk="risky",
+    )
+    surface = ScriptedSurface([screen("Console")])
+    engine = ReplayEngine(
+        surface,
+        capability([post], []),
+        policy=Policy.for_capability(capability([post], []), risky="escalate"),
+    )
+
+    result = engine.run({})
+
+    assert result.status == "needs_human"
+    assert surface.clicked == []
+
+
+def test_an_operator_who_declines_leaves_the_run_needing_a_human() -> None:
+    surface = ScriptedSurface([screen("Some other page")])
+    engine = ReplayEngine(
+        surface,
+        capability([NAVIGATE], []),
+        escalation=Escalation(
+            ScriptedOperator(lambda _: None, note="record is locked", outcome="abandoned")
+        ),
+    )
+
+    result = engine.run({})
+
+    assert result.status == "needs_human"
+    assert "record is locked" in result.message
+    assert result.failed_step == "s1"
+
+
+def test_one_stuck_step_does_not_page_an_operator_in_a_loop() -> None:
+    """The step still fails after the handoff, and it is not escalated twice."""
+    calls: list[int] = []
+    surface = ScriptedSurface([screen("Some other page")])
+    engine = ReplayEngine(
+        surface,
+        capability([NAVIGATE], []),
+        escalation=Escalation(ScriptedOperator(lambda _: calls.append(1))),
+    )
+
+    result = engine.run({})
+
+    assert result.status == "failure"
+    assert len(calls) == 1
