@@ -25,6 +25,10 @@ DEFAULT_MODEL = "claude-sonnet-5"
 MAX_STEPS = 25
 MAX_TOKENS = 1024
 
+# Actions that change the screen, and so must be verifiable on replay. Typing
+# into a field changes nothing a checkpoint could assert, so it is excluded.
+NEEDS_CHECKPOINT = frozenset({"click", "navigate"})
+
 
 @dataclass(slots=True)
 class RecordedAction:
@@ -129,6 +133,18 @@ class DiscoveryAgent:
         secrets: dict[str, str],
     ) -> str:
         """Carries out one tool call and reports back to the model."""
+        # A step with no checkpoint cannot be verified on replay, so the loop
+        # refuses to move on until one is set. Asking the model nicely was not
+        # enough: told only that its prediction missed, it would wander off and
+        # redo work it had already done correctly.
+        pending = self._pending_checkpoint(run)
+        if pending is not None and name not in ("revise_checkpoint", "finish"):
+            return (
+                f"Not yet. The previous step ({pending.action}) still has no checkpoint, "
+                f"so it could never be verified on a later run. Call revise_checkpoint "
+                f"first with text that is on the screen now and was not there before."
+            )
+
         if name == "finish":
             run.succeeded = True
             run.summary = str(args.get("summary", ""))
@@ -140,6 +156,15 @@ class DiscoveryAgent:
         if name == "navigate":
             return self._navigate(args, run)
         return self._act_on_control(name, args, run, secrets)
+
+    def _pending_checkpoint(self, run: DiscoveryRun) -> RecordedAction | None:
+        """The last screen-changing action still waiting for a usable checkpoint."""
+        if not run.actions:
+            return None
+        last = run.actions[-1]
+        if last.action in NEEDS_CHECKPOINT and not (last.expect_text and last.checkpoint_held):
+            return last
+        return None
 
     def _record_output(self, args: dict[str, Any], run: DiscoveryRun) -> str:
         """Notes a value the capability should return on every future run."""
