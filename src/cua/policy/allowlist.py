@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from cua.artifact.schema import ActionKind, Capability, Step
 
-ALL_ACTIONS: frozenset[str] = frozenset({"navigate", "click", "fill", "wait_for", "extract"})
+ALL_ACTIONS: frozenset[str] = frozenset({"navigate", "click", "fill", "extract"})
 
 
 @dataclass(frozen=True, slots=True)

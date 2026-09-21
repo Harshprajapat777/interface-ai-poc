@@ -101,7 +101,9 @@ class Checkpoint(Strict):
     timeout_ms: int = 10_000
 
 
-ActionKind = Literal["navigate", "click", "fill", "wait_for", "extract"]
+# No wait action: waiting is what a checkpoint does, and a step that waits
+# without asserting anything is the kind of sleep that hides a race.
+ActionKind = Literal["navigate", "click", "fill", "extract"]
 
 # Actions that change state the institution cannot simply undo. Replay treats
 # these conservatively - see the policy module.

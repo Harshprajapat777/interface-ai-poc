@@ -191,7 +191,7 @@ class ReplayEngine:
         state: _State,
     ) -> ReplayResult | None:
         """Carries out a step's action, or reports why it could not."""
-        if step.action in ("wait_for", "extract"):
+        if step.action == "extract":
             return None
 
         filled = ""
