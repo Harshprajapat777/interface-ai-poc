@@ -69,6 +69,9 @@ class ReplayResult:
     screenshot: str = ""
     # Interventions raised during the run, whether or not they were resolved.
     interventions: list[str] = field(default_factory=list)
+    # One line per step performed, naming the locator strategy that resolved it.
+    # A run that only matched on position is visibly fragile in the evidence.
+    trail: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:

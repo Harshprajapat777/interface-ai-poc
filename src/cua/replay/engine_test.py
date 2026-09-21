@@ -248,3 +248,20 @@ def test_one_stuck_step_does_not_page_an_operator_in_a_loop() -> None:
 
     assert result.status == "failure"
     assert len(calls) == 1
+
+
+def test_the_trail_names_the_strategy_that_resolved_each_step() -> None:
+    """A step that only matched on position should be visible in the evidence."""
+    nameless = Control(ref="c1", role="textbox", name="", label="", frame="", index=0)
+    typing = Step(
+        id="s1",
+        action="fill",
+        description="Type into the only box there is.",
+        target=TargetSpec(role="textbox", index=0),
+        value="x",
+    )
+    surface = ScriptedSurface([screen("Console", controls=[nameless])])
+
+    result = ReplayEngine(surface, capability([typing], [])).run({})
+
+    assert result.trail == ["s1 fill via=index"]

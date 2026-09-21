@@ -55,6 +55,15 @@ class _State:
     interventions: list[str] = field(default_factory=list)
 
 
+def _trail(state: _State) -> list[str]:
+    """One readable line per step performed, for the evidence log."""
+    return [
+        f"{record.step_id} {record.action}"
+        + (f" via={record.matched_by}" if record.matched_by else "")
+        for record in state.records
+    ]
+
+
 def to_target(spec: TargetSpec) -> Target:
     """Converts a recorded target into the form the surface matches against."""
     return Target(
@@ -134,6 +143,7 @@ class ReplayEngine:
             steps_run=state.steps_run,
             recoveries=state.recoveries,
             interventions=state.interventions,
+            trail=_trail(state),
         )
 
     def _run_step(
@@ -234,6 +244,7 @@ class ReplayEngine:
                 message=rule.message,
                 steps_run=state.steps_run,
                 recoveries=state.recoveries,
+                trail=_trail(state),
             )
         if rule.kind == "hard":
             return ReplayResult(
@@ -242,6 +253,7 @@ class ReplayEngine:
                 observed=rule.when_text,
                 steps_run=state.steps_run,
                 recoveries=state.recoveries,
+                trail=_trail(state),
                 screenshot=self._capture(rule.name),
             )
         return self._recover(rule, state)
@@ -281,6 +293,7 @@ class ReplayEngine:
                     observed="not found on screen",
                     steps_run=state.steps_run,
                     recoveries=state.recoveries,
+                    trail=_trail(state),
                     screenshot=self._capture("extract"),
                 )
             state.outputs[output.name] = value
@@ -330,6 +343,7 @@ class ReplayEngine:
             steps_run=state.steps_run,
             recoveries=state.recoveries,
             interventions=state.interventions,
+            trail=_trail(state),
             screenshot=intervention.screenshot,
         )
 
@@ -356,6 +370,7 @@ class ReplayEngine:
             steps_run=state.steps_run,
             recoveries=state.recoveries,
             interventions=state.interventions,
+            trail=_trail(state),
         )
 
     def _blocked(self, denial: Denial, state: _State) -> ReplayResult:
@@ -365,6 +380,7 @@ class ReplayEngine:
             message=str(denial),
             steps_run=state.steps_run,
             recoveries=state.recoveries,
+            trail=_trail(state),
         )
 
     def _failure(self, step: Step, expected: str, observed: str, state: _State) -> ReplayResult:
@@ -377,6 +393,7 @@ class ReplayEngine:
             observed=observed,
             steps_run=state.steps_run,
             recoveries=state.recoveries,
+            trail=_trail(state),
             screenshot=self._capture(step.id),
         )
 
