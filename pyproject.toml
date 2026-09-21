@@ -36,6 +36,7 @@ check = ["lint", "typecheck", "test"]
 app = "python -m target_app.server"
 discover = "python -m cua.cli.discover"
 replay = "python -m cua.cli.replay"
+handoff = "python -m cua.cli.handoff"
 
 [tool.ruff]
 line-length = 100
