@@ -37,6 +37,7 @@ app = "python -m target_app.server"
 discover = "python -m cua.cli.discover"
 replay = "python -m cua.cli.replay"
 handoff = "python -m cua.cli.handoff"
+regression = "python scripts/regression.py"
 
 [tool.ruff]
 line-length = 100

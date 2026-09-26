@@ -149,10 +149,14 @@ what forces the locator strategy to be something other than CSS selectors.
 
 ```bash
 uv run poe check        # ruff + mypy --strict + pytest
+uv run poe regression   # with the app running: every runtime condition, 5 replays each
 ```
 
-107 tests. The end-to-end ones drive a real browser against the real app; the rest
-run without one.
+134 tests. The end-to-end ones drive a real browser against the real app; the rest
+run without one. The regression matrix replays the saved capability against each
+condition the app can produce (not found, access denied, consent pop-up, bad input,
+slow load, session expiry, application error) and fails if any run disagrees with
+its expected status.
 
 ## Evidence
 
