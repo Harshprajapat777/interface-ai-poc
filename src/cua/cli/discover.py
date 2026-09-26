@@ -45,6 +45,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--secret", action="append", default=[], metavar="NAME")
     parser.add_argument("--model", default=None)
     parser.add_argument("--headed", action="store_true", help="Watch the browser work.")
+    parser.add_argument(
+        "--allow-risky",
+        action="store_true",
+        help="Let the model press irreversible controls; they are recorded as risky.",
+    )
     return parser.parse_args(argv)
 
 
@@ -59,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     log_path = EVIDENCE / f"discovery-{args.name}-{stamp}.jsonl"
     redactor = Redactor(secrets=frozenset(secrets.values()))
 
-    policy = Policy(allowlist=_allowlist(args.url))
+    # Refused unless asked for. When allowed, the step is marked risky in the
+    # artifact, so every replay still needs a person to approve it.
+    policy = Policy(allowlist=_allowlist(args.url), risky="allow" if args.allow_risky else "block")
     model = args.model or os.environ.get("ANTHROPIC_MODEL") or None
 
     with RunLog(log_path, redactor) as log, BrowserSurface(headless=not args.headed) as surface:
@@ -71,9 +78,10 @@ def main(argv: list[str] | None = None) -> int:
         _log_actions(log, run)
 
         if not run.succeeded:
-            log.event("discovery_failed", turns=run.llm_turns)
+            log.event("discovery_failed", turns=run.llm_turns, error=run.error)
             surface.screenshot(EVIDENCE / f"discovery-{args.name}-{stamp}-failed.png")
-            print(f"Goal not reached after {run.llm_turns} turns. See {log_path}")
+            reason = f" ({run.error})" if run.error else ""
+            print(f"Goal not reached after {run.llm_turns} turns{reason}. See {log_path}")
             return 1
 
         surface.screenshot(EVIDENCE / f"discovery-{args.name}-{stamp}-final.png")

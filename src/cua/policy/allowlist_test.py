@@ -1,5 +1,5 @@
 from cua.artifact.schema import AppRef, Capability, RecordMeta, Step
-from cua.policy.allowlist import Allowlist, Policy
+from cua.policy.allowlist import Allowlist, Policy, looks_irreversible
 
 CAPABILITY = Capability(
     name="demo",
@@ -59,3 +59,23 @@ def test_safe_steps_are_never_treated_as_risky() -> None:
     policy = Policy.for_capability(CAPABILITY, risky="escalate")
     assert policy.check_step(step) is None
     assert not policy.needs_human(step)
+
+
+def test_money_moving_and_destructive_controls_are_flagged() -> None:
+    for wording in (
+        "Transfer Funds",
+        "Confirm Transfer",
+        "Make a Payment",
+        "Close Account",
+        "Delete Member",
+        "Open New Sub-Account",
+        "Post Transaction",
+        "Approve Loan",
+    ):
+        assert looks_irreversible(wording), wording
+
+
+def test_the_servicing_consoles_own_buttons_are_not_flagged() -> None:
+    """A tripwire that fires on "Search" would be switched off within a day."""
+    for wording in ("Sign On", "Search", "Open", "Confirm Consent", "Back to Search", "Payday"):
+        assert not looks_irreversible(wording), wording

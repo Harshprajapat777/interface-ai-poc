@@ -19,7 +19,7 @@ from cua.artifact.schema import (
 from cua.escalation.broker import Escalation
 from cua.escalation.operator import ScriptedOperator
 from cua.policy.allowlist import Policy
-from cua.replay.engine import ReplayEngine
+from cua.replay.engine import ReplayEngine, Timing
 from cua.surface.base import Control, Observation
 
 
@@ -71,6 +71,9 @@ def capability(steps: list[Step], outcomes: list[OutcomeRule]) -> Capability:
     )
 
 
+# No real waiting in unit tests: every pause is skipped, every bound still applies.
+INSTANT = Timing(target_wait_s=0, backoff_s=0, sleep=lambda _: None)
+
 NAVIGATE = Step(
     id="s1",
     action="navigate",
@@ -116,7 +119,7 @@ def test_a_missing_control_is_a_debuggable_failure() -> None:
         target=TargetSpec(role="button", name="Search"),
     )
     surface = ScriptedSurface([screen("Console")])
-    engine = ReplayEngine(surface, capability([click], []))
+    engine = ReplayEngine(surface, capability([click], []), timing=INSTANT)
 
     result = engine.run({})
 

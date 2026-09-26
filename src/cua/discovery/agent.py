@@ -13,17 +13,29 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 from anthropic.types import MessageParam, ToolResultBlockParam
 
+from cua.artifact.schema import Extraction, ValueType
 from cua.discovery.prompt import SYSTEM, TOOLS, opening_message
-from cua.policy.allowlist import Policy
+from cua.policy.allowlist import Policy, looks_irreversible
+from cua.replay.outcomes import extract_value
+from cua.replay.typecheck import infer
 from cua.surface.base import Control, Surface
 from cua.surface.snapshot import to_prompt
 
 DEFAULT_MODEL = "claude-sonnet-5"
 MAX_STEPS = 25
 MAX_TOKENS = 1024
+
+# The SDK already retries rate limits, overload and dropped connections with
+# backoff; these widen that for a run that is worth finishing, and stop a hung
+# request from holding the browser open indefinitely.
+API_RETRIES = 5
+API_TIMEOUT_SECONDS = 60.0
+
+# Which action type in the allowlist each tool counts as.
+TOOL_ACTIONS = {"navigate": "navigate", "click": "click", "fill": "fill", "fill_secret": "fill"}
 
 # Actions that change the screen, and so must be verifiable on replay. Typing
 # into a field changes nothing a checkpoint could assert, so it is excluded.
@@ -42,6 +54,8 @@ class RecordedAction:
     value: str = ""
     secret_name: str = ""
     checkpoint_held: bool = True
+    # Pressed only because the run was allowed to; replay will ask a person first.
+    risky: bool = False
     # What was on screen before the action, so a checkpoint can be required to
     # be text that actually appeared rather than text that was already there.
     before: list[str] = field(default_factory=list)
@@ -55,6 +69,8 @@ class RecordedOutput:
     description: str
     row_contains: str
     cell: int
+    # Inferred from the value actually on screen, so replay has a shape to hold it to.
+    type: ValueType = "string"
 
 
 @dataclass(slots=True)
@@ -68,6 +84,8 @@ class DiscoveryRun:
     summary: str = ""
     succeeded: bool = False
     llm_turns: int = 0
+    # Why the run stopped early, when it was not the model's doing.
+    error: str = ""
 
 
 class DiscoveryAgent:
@@ -83,7 +101,7 @@ class DiscoveryAgent:
     ) -> None:
         self.surface = surface
         self.policy = policy
-        self.client = client or Anthropic()
+        self.client = client or Anthropic(max_retries=API_RETRIES, timeout=API_TIMEOUT_SECONDS)
         self.model = model
         self.max_steps = max_steps
 
@@ -94,13 +112,19 @@ class DiscoveryAgent:
         messages: list[MessageParam] = [{"role": "user", "content": opening}]
 
         for _ in range(self.max_steps):
-            reply = self.client.messages.create(
-                model=self.model,
-                max_tokens=MAX_TOKENS,
-                system=SYSTEM,
-                tools=TOOLS,  # type: ignore[arg-type]
-                messages=messages,
-            )
+            try:
+                reply = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=MAX_TOKENS,
+                    system=SYSTEM,
+                    tools=TOOLS,  # type: ignore[arg-type]
+                    messages=messages,
+                )
+            except APIError as error:
+                # Retries are spent. The run ends unfinished, with its evidence,
+                # rather than taking the browser and the log down with it.
+                run.error = f"model API: {error}"
+                return run
             run.llm_turns += 1
             messages.append({"role": "assistant", "content": reply.content})
 
@@ -112,9 +136,7 @@ class DiscoveryAgent:
             results: list[ToolResultBlockParam] = []
             for call in calls:
                 text = self._perform(str(call.name), dict(call.input), run, secrets)
-                results.append(
-                    {"type": "tool_result", "tool_use_id": call.id, "content": text}
-                )
+                results.append({"type": "tool_result", "tool_use_id": call.id, "content": text})
                 if run.succeeded:
                     return run
             messages.append({"role": "user", "content": results})
@@ -145,6 +167,9 @@ class DiscoveryAgent:
                 f"first with text that is on the screen now and was not there before."
             )
 
+        refused = self._refused(name)
+        if refused:
+            return refused
         if name == "finish":
             run.succeeded = True
             run.summary = str(args.get("summary", ""))
@@ -157,6 +182,14 @@ class DiscoveryAgent:
             return self._navigate(args, run)
         return self._act_on_control(name, args, run, secrets)
 
+    def _refused(self, name: str) -> str:
+        """Refuses a tool whose action type the allowlist does not permit."""
+        action = TOOL_ACTIONS.get(name)
+        if action is None:
+            return ""
+        denial = self.policy.allowlist.check_action(action)  # type: ignore[arg-type]
+        return f"Refused: {denial}." if denial else ""
+
     def _pending_checkpoint(self, run: DiscoveryRun) -> RecordedAction | None:
         """The last screen-changing action still waiting for a usable checkpoint."""
         if not run.actions:
@@ -167,13 +200,29 @@ class DiscoveryAgent:
         return None
 
     def _record_output(self, args: dict[str, Any], run: DiscoveryRun) -> str:
-        """Notes a value the capability should return on every future run."""
+        """Notes a value the capability should return on every future run.
+
+        The declaration is tried against the screen before it is accepted. An
+        output that cannot be read now would fail on every replay, and finding
+        that out at record time costs one model turn instead of a bad artifact.
+        """
+        row, cell = str(args["row_contains"]), int(args["cell"])
+        seen = extract_value(
+            Extraction(kind="row_cell", row_contains=row, cell=cell), self.surface.observe()
+        )
+        if not seen:
+            return (
+                f"Nothing to read: no row containing {row!r} has a cell {cell} on this "
+                f"screen. Cells are counted from 0, split on tabs. Here is the screen:\n"
+                f"{self._screen()}"
+            )
         run.outputs.append(
             RecordedOutput(
                 name=str(args["name"]),
                 description=str(args["description"]),
-                row_contains=str(args["row_contains"]),
-                cell=int(args["cell"]),
+                row_contains=row,
+                cell=cell,
+                type=infer(seen),
             )
         )
         return f"Recorded output {args['name']}."
@@ -240,12 +289,30 @@ class DiscoveryAgent:
                 f"typed into. Here is the current screen:\n{self._screen()}"
             )
 
-        before = self.surface.observe().texts
+        risky = name == "click" and looks_irreversible(f"{control.name} {control.label}")
+        if risky and self.policy.risky == "block":
+            return (
+                f"Refused: [{control.ref}] {control.name or control.label!r} looks irreversible, "
+                f"and this run may not perform irreversible actions. Reach the goal without it, "
+                f"or call finish and explain that a person has to take this step."
+            )
+
+        observed = self.surface.observe()
+        before, came_from = observed.texts, observed.url
         if name == "click":
             action = RecordedAction(
-                "click", str(args["why"]), str(args["expect_text"]), control, before=before
+                "click",
+                str(args["why"]),
+                str(args["expect_text"]),
+                control,
+                before=before,
+                risky=risky,
             )
             failed = self._try(lambda: self.surface.click(control))
+            if not failed:
+                strayed = self._strayed(came_from)
+                if strayed:
+                    return strayed
         elif name == "fill":
             text = str(args["text"])
             action = RecordedAction(
@@ -264,6 +331,19 @@ class DiscoveryAgent:
         if failed:
             return f"That did not work: {failed}\nHere is the screen now:\n{self._screen()}"
         return self._after(action, run)
+
+    def _strayed(self, came_from: str) -> str:
+        """Brings the run back if a click led off the allowlist, and says so.
+
+        Checking only the URLs the model asks to navigate to would miss the
+        link that leaves the application, which is the more likely way out.
+        """
+        denial = self.policy.check_url(self.surface.observe().url)
+        if denial is None:
+            return ""
+        failed = self._try(lambda: self.surface.open(came_from))
+        back = "Taken back to where you were." if not failed else f"Could not go back: {failed}"
+        return f"Refused: that click left the application ({denial}). {back}\n{self._screen()}"
 
     def _try(self, action: Callable[[], None]) -> str:
         """Runs an action, returning the problem as text instead of raising.
@@ -291,9 +371,7 @@ class DiscoveryAgent:
         screen = to_prompt(observation)
         problem = ""
         if action.expect_text:
-            problem = self._checkpoint_problem(
-                action.expect_text, action.before, observation.texts
-            )
+            problem = self._checkpoint_problem(action.expect_text, action.before, observation.texts)
             action.checkpoint_held = not problem
         run.actions.append(action)
         if not action.checkpoint_held:

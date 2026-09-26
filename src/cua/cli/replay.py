@@ -28,6 +28,7 @@ from cua.evidence.logger import RunLog
 from cua.policy.allowlist import Policy
 from cua.policy.redact import Redactor
 from cua.replay.engine import ReplayEngine
+from cua.replay.outcomes import ReplayResult
 from cua.surface.browser import BrowserSurface
 
 EVIDENCE = Path("evidence")
@@ -57,17 +58,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Replays one capability and prints a structured result."""
+    """Replays one capability and prints a structured result.
+
+    The caller always gets a result on stdout, even when the run could not
+    start: an agent parsing the output has no use for a traceback.
+    """
     load_dotenv()
     args = parse_args(argv)
     values = {**pairs(args.param), **read_secrets(args.secret)}
 
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    log_path = EVIDENCE / f"replay-{args.name}-{stamp}.jsonl"
+    try:
+        result = _replay(args, values, log_path)
+    except Exception as error:  # noqa: BLE001 - reported as a result, not a crash
+        detail = (str(error).strip().splitlines() or [type(error).__name__])[0]
+        result = ReplayResult(
+            status="failure",
+            message=f"Replay could not run: {detail}",
+            observed=type(error).__name__,
+        )
+
+    print(json.dumps(asdict(result), indent=2))
+    print(f"Evidence: {log_path}", file=sys.stderr)
+    return 0 if result.status in ("success", "business_outcome") else 1
+
+
+def _replay(args: argparse.Namespace, values: dict[str, str], log_path: Path) -> ReplayResult:
+    """Loads the capability and runs it against a fresh browser."""
     capability = store.load(args.name, args.version)
     if args.base_url:
         capability = rebase(capability, args.base_url, tenant=args.tenant)
-
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    log_path = EVIDENCE / f"replay-{args.name}-{stamp}.jsonl"
     redactor = Redactor.for_values(values, capability.sensitive_names())
 
     headless = not (args.headed or args.operator)
@@ -97,10 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         log.event("replay_finished", **asdict(result))
         for request, resolution in escalation.history if escalation else []:
             log.event("handoff", **asdict(request), resolution=asdict(resolution))
-
-    print(json.dumps(asdict(result), indent=2))
-    print(f"Evidence: {log_path}", file=sys.stderr)
-    return 0 if result.status in ("success", "business_outcome") else 1
+    return result
 
 
 if __name__ == "__main__":
