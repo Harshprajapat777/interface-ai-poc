@@ -96,6 +96,9 @@ def _step(
         target=_target(action.control) if action.control else None,
         value=value,
         checkpoint=_checkpoint(action),
+        # A step pressed only because the run allowed it stays marked, so replay
+        # asks a person every time rather than inheriting one run's permission.
+        risk="risky" if action.risky else "safe",
     )
 
 
@@ -146,7 +149,7 @@ def record(
     outputs = [
         OutputSpec(
             name=output.name,
-            type="string",
+            type=output.type,
             # Derived rather than quoted: the model's own wording for this named
             # the member and the amount it had just read off the screen.
             description=f"Read from the {output.row_contains!r} row, cell {output.cell}.",
