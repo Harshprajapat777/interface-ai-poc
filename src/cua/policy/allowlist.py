@@ -11,12 +11,32 @@ A redirect to an off-allowlist host is exactly the case a pre-flight check on
 the requested address would miss.
 """
 
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from cua.artifact.schema import ActionKind, Capability, Step
 
 ALL_ACTIONS: frozenset[str] = frozenset({"navigate", "click", "fill", "extract"})
+
+# Words on a control that mean pressing it moves money, destroys data or commits
+# the institution to something. This is a tripwire for discovery, where nobody
+# has reviewed the flow yet - not a classifier to trust on its own. It is tuned
+# to over-trigger: a false alarm costs one operator decision, a miss can cost a
+# member their money. "Confirm" alone is deliberately absent, because legacy
+# apps put it on harmless acknowledgements; "confirm transfer" is still caught.
+IRREVERSIBLE = re.compile(
+    r"\b(transfer|withdraw\w*|pay(ment)?s?|disburse\w*|wire|delete|remove|void|reverse|"
+    r"close\s+(the\s+)?account|charge[- ]?off|post\s+(the\s+)?(transaction|payment)|"
+    r"approve|authori[sz]e|submit\s+(the\s+)?(application|payment|transfer)|"
+    r"open\s+(a\s+|new\s+)*(sub-?)?account|create\s+(a\s+|new\s+)*account)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_irreversible(text: str) -> bool:
+    """True if a control's wording suggests it cannot be undone."""
+    return IRREVERSIBLE.search(text) is not None
 
 
 @dataclass(frozen=True, slots=True)
