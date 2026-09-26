@@ -108,6 +108,18 @@ handled in place — dismiss a known interstitial, or restart the flow after a
 session timeout — and recoveries are carried across a restart, so a run that signed
 on twice says so.
 
+**Replay never raises.** Whatever the browser does, the caller gets one of the six
+statuses. A surface error — a detached element, a load timeout, a refused
+connection — is retried with backoff, three attempts, with the control resolved
+afresh each time. Two rules keep a retry from making things worse: a `risky` step
+is never retried, since its first attempt may have half-happened, and a step whose
+checkpoint already holds is treated as done rather than repeated. A control is
+waited for, briefly, instead of looked up once, and when it never appears a
+recognised condition on screen is offered as the explanation before "no matching
+control" is. A whole-run budget (120 s) bounds all of it. Extracted outputs are
+checked against their declared type, so a moved column returns a failure instead of
+an account number labelled as a balance.
+
 **On drift**, which the brief rightly calls secondary: the fallback chain absorbs a
 renamed button, `recorded_strategy` makes weak matches visible before they break,
 and `trail` on every result reports how each step was resolved. What we do *not*
@@ -192,6 +204,13 @@ action taken wrongly on a member account cannot be undone by retrying, so "nobod
 chose" must resolve to the conservative option. The alternative is escalation, not
 permission.
 
+**Discovery gets the same guardrails, earlier.** The model's clicks are checked
+against the allowlist *after* they land, and one that leaves the application is
+undone and not recorded. A control whose wording reads as irreversible — transfer,
+payment, close account — is refused unless the run passes `--allow-risky`, and a
+step taken under that flag is recorded as `risky`, so every replay asks a person
+rather than inheriting one discovery's permission.
+
 **Secrets and PII are treated differently, deliberately.** Credentials are never
 written anywhere and are never shown to the model: it calls `fill_secret` with a
 *name* and the value is substituted locally, so a password reaches the browser
@@ -211,7 +230,8 @@ extraction rule, and adjacent text is kept only when it is the identifier.
 in free text could survive. The allowlist governs where we navigate, not what a
 step *means* — nothing stops a well-formed capability doing something harmful
 within its own app, which is what the risky/approval class and human review of
-artifacts are for. `approval: draft | approved` exists in the schema but nothing
+artifacts are for. The irreversible-wording tripwire is a keyword list, tuned to
+over-trigger; a control labelled only with an icon or an internal code gets past it. `approval: draft | approved` exists in the schema but nothing
 enforces it yet.
 
 ## 7. Cuts
@@ -227,8 +247,9 @@ enforces it yet.
 - **`wait_for` as an action.** Removed rather than shipped unused — waiting is what
   a checkpoint does, and a step that waits without asserting is a sleep hiding a
   race.
-- **No test for the discovery loop itself.** It needs a faked Anthropic client;
-  everything it produces is tested, and the loop is exercised by real runs.
+- **No end-to-end test of the discovery loop's reasoning.** Its guardrails are
+  tested with a scripted screen and a faked client; whether the model picks the
+  right controls is exercised by real runs only.
 
 **What I would build next, in order:**
 
